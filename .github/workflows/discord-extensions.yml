@@ -49,7 +49,7 @@ jobs:
           body=$(printf '%s\n' "$changed" | sed 's/^/- **/; s/$/**/')
           body="$body
 
-          Players who have the extension installed, with \"Update extensions automatically\" ticked, get it at their next game start; it is in use from the start after that."
+          Players who have the extension installed, with \"Update extensions automatically\" ticked, get it at game start or disabling then enabling the addon in Nexus.; it is in use from the start after that."
           # The web upload's default message says nothing: only a written one is added.
           first=$(printf '%s\n' "$MESSAGE" | head -n 1)
           case "$first" in
