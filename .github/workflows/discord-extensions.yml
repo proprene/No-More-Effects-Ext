@@ -1,0 +1,70 @@
+name: Announce extension updates on Discord
+
+on:
+  push:
+    branches: [main]
+    paths: ['*.dll']
+
+permissions:
+  contents: read
+
+jobs:
+  discord:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Post to Discord
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          ROLE_ID: ${{ vars.DISCORD_ROLE_ID }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+          URL: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
+          MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then
+            echo "::error::The DISCORD_WEBHOOK secret is not set (see the comment at the top of this file)."
+            exit 1
+          fi
+          # The DLLs this push added or changed (the first push: all of them).
+          if git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            changed=$(git diff --name-only --diff-filter=AM "$BEFORE" "$AFTER" -- '*.dll')
+          else
+            changed=$(git ls-tree --name-only "$AFTER" | grep -i '\.dll$' || true)
+          fi
+          if [ -z "$changed" ]; then
+            echo "No extension DLL changed."
+            exit 0
+          fi
+          names=$(printf '%s\n' "$changed" | paste -sd ',' - | sed 's/,/, /g')
+          content="Extension update: $names"
+          mentions='{"parse": []}'
+          if [ -n "$ROLE_ID" ]; then
+            content="<@&$ROLE_ID> $content"
+            mentions=$(jq -n --arg role "$ROLE_ID" '{parse: [], roles: [$role]}')
+          fi
+          body=$(printf '%s\n' "$changed" | sed 's/^/- **/; s/$/**/')
+          body="$body
+
+          Players who have the extension installed, with \"Update extensions automatically\" ticked, get it at their next game start; it is in use from the start after that."
+          # The web upload's default message says nothing: only a written one is added.
+          first=$(printf '%s\n' "$MESSAGE" | head -n 1)
+          case "$first" in
+            "Add files via upload"|"Upload files"|"Update "*|"Add "*) ;;
+            *) [ -n "$first" ] && body="$body
+
+          $MESSAGE" ;;
+          esac
+          jq -n \
+            --arg content "$content" \
+            --arg url "$URL" \
+            --arg body "$body" \
+            --argjson mentions "$mentions" \
+            '{content: $content,
+              allowed_mentions: $mentions,
+              embeds: [{title: "No-More-Effects extension update", url: $url, color: 14670500,
+                        description: ($body | .[0:4000])}]}' \
+          | curl -sS --fail-with-body -H "Content-Type: application/json" -d @- "$WEBHOOK"
